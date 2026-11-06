@@ -1,0 +1,19 @@
+# Put this directory's CONTENTS at the root of the Git repository.
+services:
+  - type: web
+    name: thetadata-options
+    runtime: python
+    region: virginia
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash scripts/start_http.sh
+    healthCheckPath: /health
+    envVars:
+      - key: THETADATA_API_KEY
+        sync: false
+      - key: MCP_API_KEY
+        generateValue: true
+      - key: THETADATA_MAX_CONCURRENT_REQUESTS
+        value: "1"
+      - key: PYTHONUNBUFFERED
+        value: "1"

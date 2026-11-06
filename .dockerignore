@@ -1,0 +1,12 @@
+.git
+.venv
+**/__pycache__
+*.pyc
+.env
+.env.*
+*.env
+creds.txt
+*.log
+dist
+tests
+.DS_Store

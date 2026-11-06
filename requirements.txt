@@ -1,0 +1,7 @@
+thetadata==1.0.17
+mcp==1.30.0
+# ThetaData 1.0.17 imports dotenv but omits it from its package dependencies.
+python-dotenv>=1.2.4,<2
+uvicorn==0.54.0
+starlette>=0.48,<2
+tzdata>=2025.2

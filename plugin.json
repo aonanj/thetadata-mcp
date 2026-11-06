@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "thetadata-options",
+  "version": "0.2.0",
+  "description": "Read-only ThetaData options data with local stdio and authenticated hosted Streamable HTTP deployment.",
+  "author": {"name": "Phaethon Order"},
+  "keywords": ["options", "thetadata", "greeks", "implied-volatility", "open-interest"],
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "ThetaData Options",
+        "shortDescription": "Option chains, Greeks and IV",
+        "longDescription": "Fetch options quotes, bid/ask spreads, Greeks, implied volatility and daily open interest for one underlying. Preserves source timestamps, flags stale or crossed quotes, and returns partial data when an endpoint is unavailable. This package retains local stdio configuration and includes an authenticated Streamable HTTP server, Render Blueprint and Dockerfile for hosted deployment. Requires Python 3.12+ and the relevant ThetaData subscription.",
+        "developerName": "Phaethon Order",
+        "category": "Finance",
+        "capabilities": [],
+        "defaultPrompt": "Show the QQQ call and put chain for the next 7 calendar days, including bid/ask spreads, IV, Greeks, open interest and source timestamps."
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "thetadata-options": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["${PLUGIN_ROOT}/scripts/run.sh"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}
