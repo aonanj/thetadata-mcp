@@ -15,12 +15,12 @@ variables do not automatically carry over to Render.
 | --- | --- |
 | `get_status` | Check dependency versions and API-key presence without revealing the key or authenticating. |
 | `list_expirations` | Discover available expirations for one underlying, with optional date bounds. |
-| `get_option_chain` | Join quotes, IV, all available Greeks and daily open interest by symbol, expiration, exact strike and right. |
+| `get_option_chain` | Join quotes, IV, first-order Greeks and daily open interest by symbol, expiration, exact strike and right. |
 | `get_option_contract` | Refresh one exact contract using its underlying, expiration, dollar strike and call/put right. |
 
 Chain output includes NBBO bid/ask, bid/ask size, midpoint, dollar spread, spread
-as a percentage of midpoint, IV, delta, gamma, theta, vega, rho and the other
-Greeks supplied by ThetaData. Quote, Greek, underlying and open-interest
+as a percentage of midpoint, IV, delta, theta, vega, rho, epsilon and lambda.
+Quote, Greek, underlying and open-interest
 timestamps are kept separately. Missing values stay null. Each requested
 endpoint has its own status, so missing entitlement does not discard quotes or OI.
 
@@ -112,10 +112,14 @@ Run the supplied client check:
 ```bash
 python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp
 python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp --live --symbol QQQ
+python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp --live --symbol QQQ --greeks-model binomial
 ```
 
 The first command verifies MCP initialization, tool discovery and remote status.
 The `--live` command also fetches expirations and a small chain from ThetaData.
+On an existing Render service, deploy the updated source before running these
+checks. In `source_status.greeks`, confirm the selected `endpoint` and look for
+`status: ok` and a positive `row_count`.
 Inspect its per-source statuses: permission errors or empty quotes can produce
 partial results even when the MCP connection succeeds. Secrets are not printed.
 Opening `/mcp` in a browser is not an MCP connection test.
@@ -217,7 +221,8 @@ initially; concurrency limits are per process, not shared across replicas.
   `MCP_ALLOWED_HOSTS`. Do not disable host validation or add broad wildcard domains.
 - **`AUTHENTICATION_FAILED` / `PERMISSION_DENIED`:** Check the server-side
   ThetaData key and endpoint entitlement. The original local environment is not
-  inherited by Render. Snapshot Greeks require the documented Pro entitlement.
+  inherited by Render. Check `source_status.greeks.endpoint` to confirm which
+  first-order route the deployed version used.
 - **`BUSY`:** Another provider query holds the default single worker slot. Retry
   when it completes. Increase `THETADATA_MAX_CONCURRENT_REQUESTS` only after
   checking service memory and your provider concurrency allowance.
@@ -283,6 +288,7 @@ Example tool arguments:
   "strike_range": 3,
   "right": "both",
   "include_greeks": true,
+  "greeks_model": "standard",
   "include_open_interest": true
 }
 ```
@@ -317,9 +323,13 @@ Example tool arguments:
 - Open interest is a daily OPRA report, generally published around 06:30 ET,
   reflecting the previous trading day's positions. Its timestamp is separate;
   it must not be described as current intraday positioning or flow.
-- Snapshot Greeks/IV are subject to ThetaData entitlements. The documented
-  `option_snapshot_greeks_all` endpoint requires **Pro**. Errors remain visible
-  in `source_status`; no substitute Greeks or fabricated values are generated.
+- Both tools default to `greeks_model="standard"`, which calls
+  `option_snapshot_greeks_first_order`. Set `greeks_model="binomial"` to use
+  `option_snapshot_binomial_greeks_first_order`. ThetaData lists both Python
+  endpoints for Standard and Pro. Each request uses one model, identified in
+  `source_status.greeks`. Set `include_greeks=false` to skip the Greeks request.
+  Existing response fields for higher-order Greeks, including gamma, are
+  retained for compatibility and are null when the first-order route omits them.
 - A complete tool request is bounded to 45 seconds. Network failures, missing keys,
   unavailable data and subscription errors return structured error categories.
 
@@ -352,7 +362,7 @@ Validation includes:
   tokens from the provider subprocess environment.
 - Remote plugin export validation.
 
-The hosted refactor passes 27 automated tests plus official MCP-client checks for
+The hosted refactor includes automated tests plus official MCP-client checks for
 both stdio and HTTP. The HTTP smoke test uses an in-process ASGI transport rather
 than a deployed URL. Docker image build/run was not tested because the local
 Docker daemon was unavailable; no Render service has been created or deployed.
@@ -367,7 +377,8 @@ whether the API key or subscription is valid. After installing, run
 - [Python getting started and API-key authentication](https://thetadata.net/docs/Python-Library/Getting-Started.html)
 - [Expiration discovery](https://thetadata.net/docs/operations_python/option_list_expirations.html)
 - [Snapshot NBBO quotes and available filters](https://thetadata.net/docs/operations_python/option_snapshot_quote.html)
-- [Snapshot Greeks and Pro entitlement](https://thetadata.net/docs/operations_python/option_snapshot_greeks_all.html)
+- [First-order snapshot Greeks](https://thetadata.net/docs/operations_python/option_snapshot_greeks_first_order.html)
+- [First-order binomial snapshot Greeks](https://thetadata.net/docs/operations_python/option_snapshot_binomial_greeks_first_order.html)
 - [Daily open-interest semantics](https://thetadata.net/docs/operations_python/option_snapshot_open_interest.html)
 - [Render Python web-service deployment](https://render.com/docs/web-services)
 - [Render Blueprint configuration and secrets](https://render.com/docs/blueprint-spec)

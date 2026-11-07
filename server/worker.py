@@ -16,7 +16,7 @@ def main():
         if not os.environ.get("THETADATA_API_KEY"):
             return {"error": {"code": "MISSING_API_KEY", "message": "Set THETADATA_API_KEY in the environment of the process launching this plugin."}}
         with contextlib.redirect_stdout(sys.stderr):
-            from thetadata import ThetaClient
+            from thetadata.client import ThetaClient
             # Prevent implicit discovery of unrelated .env files.
             client = ThetaClient(api_key=os.environ["THETADATA_API_KEY"],
                                  dotenv_path=os.devnull, dataframe_type="polars")

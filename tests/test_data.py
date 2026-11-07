@@ -34,7 +34,7 @@ class FakeClient:
         self.calls.append(kwargs)
         return Frame([row()])
 
-    def option_snapshot_greeks_all(self, **kwargs):
+    def option_snapshot_greeks_first_order(self, **kwargs):
         raise RuntimeError("secret-should-never-appear")
 
     def option_snapshot_open_interest(self, **kwargs):
@@ -102,6 +102,32 @@ class DataTests(unittest.TestCase):
         self.assertEqual(result["rows"][0]["open_interest"], 123)
         self.assertIsNone(result["rows"][0]["greeks"]["delta"])
         self.assertNotIn("secret-should-never-appear", str(result))
+
+    def test_first_order_models_use_the_selected_route_and_keep_iv(self):
+        for model, endpoint in (
+            ("standard", "option_snapshot_greeks_first_order"),
+            ("binomial", "option_snapshot_binomial_greeks_first_order"),
+        ):
+            with self.subTest(model=model):
+                client = FakeClient()
+                calls = []
+
+                def snapshot(**params):
+                    calls.append(params)
+                    return Frame([row(delta=.52, theta="-.2", implied_vol=.25)])
+
+                setattr(client, endpoint, snapshot)
+                args = {} if model == "standard" else {"greeks_model": model}
+                result = OptionsService(client).chain(
+                    "QQQ", expiration="2026-11-06", strike="500.5", right="call", **args)
+                self.assertEqual(calls, [client.calls[0]])
+                self.assertEqual(result["source_status"]["greeks"], {
+                    "status": "ok", "row_count": 1, "model": model, "endpoint": endpoint})
+                item = result["rows"][0]
+                self.assertEqual(item["greeks"]["delta"], .52)
+                self.assertEqual(item["greeks"]["theta"], -.2)
+                self.assertIsNone(item["greeks"]["gamma"])
+                self.assertEqual(item["implied_vol"], .25)
 
     def test_zero_dte_uses_date_instead_of_sdk_zero_filter(self):
         client = FakeClient()

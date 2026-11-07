@@ -105,9 +105,11 @@ def join_snapshots(sources: dict[str, list[dict]], *, max_rows: int = 200,
             flags.append("crossed_quote")
         elif bid == 0:
             flags.append("zero_bid")
-        valid = bid is not None and ask is not None and 0 <= bid <= ask and ask > 0
-        mid = (bid + ask) / 2 if valid else None
-        spread = ask - bid if valid else None
+        if bid is not None and ask is not None and 0 <= bid <= ask and ask > 0:
+            mid = (bid + ask) / 2
+            spread = ask - bid
+        else:
+            mid = spread = None
         quote_age, greeks_age = age(q.get("timestamp"), now), age(g.get("timestamp"), now)
         for label, record, seconds in (("quote", q, quote_age), ("greeks", g, greeks_age)):
             if record and seconds is None:
@@ -122,7 +124,7 @@ def join_snapshots(sources: dict[str, list[dict]], *, max_rows: int = 200,
             "calendar_dte": (date.fromisoformat(expiration) - now.astimezone(ET).date()).days,
             "bid": bid, "ask": ask, "mid": round(mid, 8) if mid is not None else None,
             "spread": round(spread, 8) if spread is not None else None,
-            "spread_pct_of_mid": round(100 * spread / mid, 4) if mid else None,
+            "spread_pct_of_mid": round(100 * spread / mid, 4) if mid and spread is not None else None,
             "bid_size": q.get("bid_size"), "ask_size": q.get("ask_size"),
             "quote_timestamp": iso(q.get("timestamp")), "quote_age_seconds": quote_age,
             "greeks": {name: number(g.get(name)) for name in GREEKS},
@@ -150,15 +152,15 @@ def provider_error(error: Exception) -> dict:
         code = "AUTHENTICATION_FAILED"
     elif name in ("ConnectError", "ConnectTimeout", "ReadTimeout", "ProxyError"):
         code = "NETWORK_ERROR"
-    elif hasattr(error, "code"):
+    elif callable(code_method := getattr(error, "code", None)):
         try:
-            code = error.code().name
+            code = getattr(code_method(), "name")
         except Exception:
             pass
     hints = {
         "NO_DATA": "No matching provider records. Check expiration, session and current_day_only.",
         "AUTHENTICATION_FAILED": "ThetaData rejected authentication. Check THETADATA_API_KEY locally.",
-        "PERMISSION_DENIED": "Your ThetaData subscription may not include this endpoint. Snapshot Greeks require Pro according to the docs.",
+        "PERMISSION_DENIED": "ThetaData denied access. Check the subscription and entitlement for the requested endpoint.",
         "UNAUTHENTICATED": "ThetaData authentication is required or expired.",
         "UNAVAILABLE": "ThetaData is unreachable. Check connectivity and provider service status.",
         "NETWORK_ERROR": "Unable to connect to ThetaData. Check network and DNS access.",
@@ -184,7 +186,7 @@ class OptionsService:
               strike: str = "*", max_dte: int | None = None, strike_range: int = 5,
               include_greeks: bool = True, include_open_interest: bool = True,
               current_day_only: bool = False, max_rows: int = 200,
-              stale_after_seconds: int = 120) -> dict:
+              stale_after_seconds: int = 120, greeks_model: str = "standard") -> dict:
         params = {"symbol": symbol, "expiration": expiration, "right": right, "strike": strike,
                   "current_day_only": current_day_only}
         # SDK 1.0.17 drops max_dte=0/strike_range=0 with truthiness checks.
@@ -199,7 +201,10 @@ class OptionsService:
             params["strike_range"] = strike_range
         methods = {"quotes": "option_snapshot_quote"}
         if include_greeks:
-            methods["greeks"] = "option_snapshot_greeks_all"
+            methods["greeks"] = {
+                "standard": "option_snapshot_greeks_first_order",
+                "binomial": "option_snapshot_binomial_greeks_first_order",
+            }[greeks_model]
         if include_open_interest:
             methods["open_interest"] = "option_snapshot_open_interest"
         sources, status = {}, {}
@@ -211,6 +216,8 @@ class OptionsService:
                 failure = provider_error(error)
                 status[source] = {"status": "empty" if failure["code"] == "NO_DATA" else "error", **failure}
                 sources[source] = []
+            if source == "greeks":
+                status[source].update(model=greeks_model, endpoint=method)
         result = join_snapshots(sources, max_rows=max_rows, stale_after_seconds=stale_after_seconds)
         result.update({"source_status": status, "effective_provider_filters": params,
                        "partial": any(v["status"] != "ok" for v in status.values()),

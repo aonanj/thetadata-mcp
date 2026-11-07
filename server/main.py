@@ -70,12 +70,14 @@ async def get_option_chain(
     current_day_only: bool = False,
     max_rows: Annotated[int, Field(ge=1, le=500)] = 200,
     stale_after_seconds: Annotated[int, Field(ge=1, le=86400)] = 120,
+    greeks_model: Literal["standard", "binomial"] = "standard",
 ) -> dict:
     """Get NBBO, spread, IV, Greeks and daily OI joined by exact contract identity.
 
     expiration is YYYY-MM-DD or '*'. For '*' max_dte defaults to 7 calendar days;
     explicit expirations ignore max_dte. strike_range selects N strikes each side of
-    spot plus ATM. Snapshot Greeks/IV require provider entitlement (documented Pro).
+    spot plus ATM. With include_greeks, greeks_model selects ThetaData's standard
+    or binomial first-order Greeks and IV. Both routes are available on Standard.
     Partial results retain errors. Quotes may be up to 7 days old outside session.
     """
     args = locals().copy()
@@ -94,10 +96,12 @@ async def get_option_contract(
     include_open_interest: bool = True,
     current_day_only: bool = False,
     stale_after_seconds: Annotated[int, Field(ge=1, le=86400)] = 120,
+    greeks_model: Literal["standard", "binomial"] = "standard",
 ) -> dict:
     """Fetch one exact option contract. Strike is dollars, e.g. 500.5; never mills.
 
-    Returns bid/ask/size/spread plus independently timestamped IV, Greeks and daily OI.
+    Returns bid/ask/size/spread plus independently timestamped IV, first-order
+    Greeks and daily OI. Select standard or binomial first-order Greeks with greeks_model.
     Use this for a fresh check after discovering contracts with get_option_chain.
     """
     args = locals().copy()
