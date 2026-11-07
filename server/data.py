@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import math
+import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -165,6 +166,7 @@ def provider_error(error: Exception) -> dict:
         "UNAVAILABLE": "ThetaData is unreachable. Check connectivity and provider service status.",
         "NETWORK_ERROR": "Unable to connect to ThetaData. Check network and DNS access.",
         "DEADLINE_EXCEEDED": "ThetaData request timed out. Narrow the expiration or strike range.",
+        "INTERNAL": "ThetaData returned an internal server error. Retry later; if it persists, contact ThetaData support with the endpoint and time.",
     }
     return {"code": code, "message": hints.get(code, "ThetaData request failed; check access, inputs and provider status.")}
 
@@ -173,8 +175,24 @@ class OptionsService:
     def __init__(self, client):
         self.client = client
 
+    def _records(self, method: str, **params) -> list[dict]:
+        # Retry only transient failures, using the same endpoint and filters.
+        # Materialize the stream inside the try: gRPC may fail during iteration.
+        # The parent worker's 45-second deadline still bounds the whole request.
+        attempt = 0
+        while True:
+            try:
+                return getattr(self.client, method)(**params).to_dicts()
+            except Exception as error:
+                if attempt == 2 or provider_error(error)["code"] not in {
+                    "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED", "NETWORK_ERROR",
+                }:
+                    raise
+                time.sleep(0.25 * (2 ** attempt))
+                attempt += 1
+
     def expirations(self, symbol: str, start: str | None = None, end: str | None = None) -> dict:
-        rows = self.client.option_list_expirations(symbol=symbol).to_dicts()
+        rows = self._records("option_list_expirations", symbol=symbol)
         dates = sorted({expiry(r["expiration"]) for r in rows})
         if start:
             dates = [d for d in dates if d >= start]
@@ -210,7 +228,7 @@ class OptionsService:
         sources, status = {}, {}
         for source, method in methods.items():
             try:
-                sources[source] = getattr(self.client, method)(**params).to_dicts()
+                sources[source] = self._records(method, **params)
                 status[source] = {"status": "ok" if sources[source] else "empty", "row_count": len(sources[source])}
             except Exception as error:
                 failure = provider_error(error)

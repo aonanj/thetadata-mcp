@@ -120,8 +120,11 @@ The `--live` command also fetches expirations and a small chain from ThetaData.
 On an existing Render service, deploy the updated source before running these
 checks. In `source_status.greeks`, confirm the selected `endpoint` and look for
 `status: ok` and a positive `row_count`.
-Inspect its per-source statuses: permission errors or empty quotes can produce
-partial results even when the MCP connection succeeds. Secrets are not printed.
+The live check exits successfully only when expirations and all three requested
+chain sources return records. Provider errors or empty sources exit with status 1
+and a concise JSON diagnostic on stderr, including the failing tool/source.
+The MCP tools still preserve partial chain results for clients. Secrets and raw
+provider exception details are not printed.
 Opening `/mcp` in a browser is not an MCP connection test.
 
 ### 4. Connect a client or create the remote plugin
@@ -223,6 +226,14 @@ initially; concurrency limits are per process, not shared across replicas.
   ThetaData key and endpoint entitlement. The original local environment is not
   inherited by Render. Check `source_status.greeks.endpoint` to confirm which
   first-order route the deployed version used.
+- **`INTERNAL`:** ThetaData returned an internal server error. The server retries
+  each transiently failing SDK request up to twice, with 0.25- and 0.5-second
+  delays, using the same endpoint and filters. Retries remain within the overall
+  45-second worker limit. Deploy the updated server code to enable these retries
+  on Render; updating the local checker alone changes only its diagnostics.
+  If failures persist, retry later or contact ThetaData support with the endpoint
+  and time. An `INTERNAL` response alone does not establish an authentication or
+  entitlement problem. Authentication, permission and no-data errors are not retried.
 - **`BUSY`:** Another provider query holds the default single worker slot. Retry
   when it completes. Increase `THETADATA_MAX_CONCURRENT_REQUESTS` only after
   checking service memory and your provider concurrency allowance.
@@ -349,10 +360,11 @@ python tests/smoke_http.py
 
 Validation includes:
 
-- Twelve automated tests covering exact contract joins, fractional strikes,
+- Automated tests covering exact contract joins, fractional strikes,
   spread calculations, stale/crossed quotes, duplicate records, source timestamps,
   missing data, partial access, zero-DTE filtering, bounded requests, input schemas
-  and secret-safe error messages.
+  and secret-safe error messages, bounded transient retries, and remote-check
+  exit statuses through the MCP HTTP transport.
 - Official MCP client initialization, discovery of all four tools, status call,
   missing-key response and invalid-input rejection.
 - Local launcher and dependency setup.
@@ -365,12 +377,18 @@ Validation includes:
 The hosted refactor includes automated tests plus official MCP-client checks for
 both stdio and HTTP. The HTTP smoke test uses an in-process ASGI transport rather
 than a deployed URL. Docker image build/run was not tested because the local
-Docker daemon was unavailable; no Render service has been created or deployed.
+Docker daemon was unavailable.
 
-**Live provider data and a production deployment remain unverified.** The earlier authenticated test from the
-execution environment returned a network/DNS error. This does not establish
-whether the API key or subscription is valid. After installing, run
-`list_expirations`, then a narrow `get_option_chain` request to verify live access.
+On November 7, 2026, the hosted check returned QQQ expirations and quotes, with
+`INTERNAL` errors for Greeks and open interest. A separate direct SDK probe
+returned `INTERNAL` for expirations while Greeks and open interest succeeded.
+This reproduced intermittent provider failures; it does not establish that all
+endpoints are consistently healthy. The updated checker correctly exited with
+status 1 when the live expiration retries were exhausted. A subsequent live
+check through the updated provider adapter returned expirations and 10 chain rows,
+with quotes, Greeks and open interest all successful. All 40 automated tests and
+both MCP smoke tests passed. These changes have not been deployed to Render;
+after deploying, run `check_remote.py --live` to verify current hosted access.
 
 ## Official references
 

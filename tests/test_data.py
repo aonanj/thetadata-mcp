@@ -3,6 +3,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import Mock, call, patch
+
+import grpc
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 from data import OptionsService, join_snapshots, provider_error
@@ -39,6 +42,15 @@ class FakeClient:
 
     def option_snapshot_open_interest(self, **kwargs):
         return Frame([row(open_interest=123)])
+
+
+class ProviderRPCError(grpc.RpcError):
+    def __init__(self, code):
+        super().__init__("secret-provider-detail")
+        self.status_code = code
+
+    def code(self):
+        return self.status_code
 
 
 class DataTests(unittest.TestCase):
@@ -145,6 +157,76 @@ class DataTests(unittest.TestCase):
 
     def test_sensitive_errors_are_not_returned(self):
         self.assertNotIn("api-key-value", str(provider_error(RuntimeError("api-key-value"))))
+
+    @patch("data.time.sleep")
+    def test_expirations_recover_from_internal_error_with_same_request(self, sleep):
+        error = ProviderRPCError(grpc.StatusCode.INTERNAL)
+        client = Mock()
+        client.option_list_expirations.side_effect = [error, error, Frame([
+            {"expiration": "2026-11-13"}, {"expiration": "2026-11-09"},
+            {"expiration": "2026-11-09"}, {"expiration": "2026-11-06"},
+        ])]
+        result = OptionsService(client).expirations("QQQ", "2026-11-07", "2026-11-13")
+        self.assertEqual(result, {"symbol": "QQQ", "expirations": ["2026-11-09", "2026-11-13"]})
+        self.assertEqual(client.option_list_expirations.call_args_list, [call(symbol="QQQ")] * 3)
+        self.assertEqual(sleep.call_args_list, [call(.25), call(.5)])
+
+    @patch("data.time.sleep")
+    def test_expirations_stop_after_three_transient_failures(self, sleep):
+        error = ProviderRPCError(grpc.StatusCode.INTERNAL)
+        client = Mock()
+        client.option_list_expirations.side_effect = error
+        with self.assertRaises(ProviderRPCError) as caught:
+            OptionsService(client).expirations("QQQ")
+        self.assertIs(caught.exception, error)
+        self.assertEqual(client.option_list_expirations.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn("internal server error", provider_error(error)["message"])
+        self.assertNotIn("secret-provider-detail", str(provider_error(error)))
+
+    @patch("data.time.sleep")
+    def test_permanent_failures_and_empty_results_are_not_retried(self, sleep):
+        for failure in (ProviderRPCError(grpc.StatusCode.PERMISSION_DENIED),
+                        ProviderRPCError(grpc.StatusCode.UNAUTHENTICATED),
+                        ProviderRPCError(grpc.StatusCode.NOT_FOUND), ValueError("bad input")):
+            with self.subTest(failure=failure):
+                client = Mock()
+                client.option_list_expirations.side_effect = failure
+                with self.assertRaises(type(failure)):
+                    OptionsService(client).expirations("QQQ")
+                client.option_list_expirations.assert_called_once_with(symbol="QQQ")
+        client = Mock()
+        client.option_list_expirations.return_value = Frame([])
+        self.assertEqual(OptionsService(client).expirations("QQQ")["expirations"], [])
+        client.option_list_expirations.assert_called_once_with(symbol="QQQ")
+        sleep.assert_not_called()
+
+    @patch("data.time.sleep")
+    def test_chain_retries_materialization_without_refetching_successful_sources(self, sleep):
+        client = FakeClient()
+        failed_frame = Mock()
+        failed_frame.to_dicts.side_effect = ProviderRPCError(grpc.StatusCode.INTERNAL)
+        client.option_snapshot_binomial_greeks_first_order = Mock(side_effect=[
+            failed_frame, Frame([row(delta=.52, implied_vol=.25)]),
+        ])
+        result = OptionsService(client).chain("QQQ", greeks_model="binomial", max_dte=5, strike_range=1)
+        self.assertFalse(result["partial"])
+        self.assertEqual(result["rows"][0]["greeks"]["delta"], .52)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(client.option_snapshot_binomial_greeks_first_order.call_args_list,
+                         [call(**client.calls[0])] * 2)
+
+    @patch("data.time.sleep")
+    def test_exhausted_chain_source_keeps_other_sources_and_safe_error(self, sleep):
+        client = FakeClient()
+        client.option_snapshot_greeks_first_order = Mock(side_effect=ProviderRPCError(grpc.StatusCode.INTERNAL))
+        result = OptionsService(client).chain("QQQ")
+        self.assertEqual(client.option_snapshot_greeks_first_order.call_count, 3)
+        self.assertTrue(result["partial"])
+        self.assertEqual(result["source_status"]["greeks"]["code"], "INTERNAL")
+        self.assertEqual(result["rows"][0]["bid"], 3)
+        self.assertEqual(result["rows"][0]["open_interest"], 123)
+        self.assertNotIn("secret-provider-detail", str(result))
 
     def test_symbol_and_schema_bounds(self):
         self.assertEqual(symbol_checked(" qqq "), "QQQ")
