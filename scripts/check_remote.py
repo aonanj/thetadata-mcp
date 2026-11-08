@@ -1,4 +1,4 @@
-"""Verify a hosted MCP endpoint; reads its bearer token only from MCP_API_KEY."""
+"""Verify a hosted MCP endpoint using MCP_API_KEY or MCP_OAUTH_ACCESS_TOKEN."""
 import argparse
 from datetime import datetime, timedelta
 import asyncio
@@ -60,15 +60,18 @@ async def tool_payload(session, name, arguments):
     return payload
 
 
-async def check(url, live, symbol, greeks_model=None):
+async def check(url, live, symbol, greeks_model=None, auth="bearer"):
     parsed = urlparse(url)
     if parsed.scheme != "https" and not (parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1", "::1")):
         raise CheckFailed("Use HTTPS, or HTTP only for a local loopback test")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise CheckFailed("Do not put credentials, tokens or query parameters in the endpoint URL")
-    token = os.getenv("MCP_API_KEY")
+    if auth not in {"bearer", "oauth"}:
+        raise CheckFailed("Choose bearer or oauth authentication")
+    token_name = "MCP_OAUTH_ACCESS_TOKEN" if auth == "oauth" else "MCP_API_KEY"
+    token = os.getenv(token_name)
     if not token:
-        raise CheckFailed("Set MCP_API_KEY in your environment before running the check")
+        raise CheckFailed(f"Set {token_name} in your environment before running the check")
     async with (
         AsyncClient(headers={"Authorization": f"Bearer {token}"}, timeout=60) as http_client,
         streamable_http_client(url, http_client=http_client) as (read, write, _),
@@ -119,7 +122,8 @@ def failure_messages(error):
         return [str(error)]
     if isinstance(error, HTTPStatusError):
         code = error.response.status_code
-        hint = "Check MCP_API_KEY matches the deployed service token." if code == 401 else "Check the endpoint and server logs."
+        hint = ("Check the selected credential: MCP_API_KEY for bearer mode; issuer, audience and expiry of MCP_OAUTH_ACCESS_TOKEN for OAuth."
+                if code == 401 else "Check OAuth scope/account access." if code == 403 else "Check the endpoint and server logs.")
         return [f"MCP HTTP {code}: {hint}"]
     if isinstance(error, RequestError):
         return ["MCP connection failed. Check the endpoint, network/DNS access and whether the service is awake."]
@@ -131,11 +135,13 @@ def main(argv=None):
     parser.add_argument("--url", required=True, help="Hosted HTTPS /mcp URL (or local loopback URL)")
     parser.add_argument("--live", action="store_true", help="Also call ThetaData expirations and a narrow option chain")
     parser.add_argument("--symbol", default="QQQ")
+    parser.add_argument("--auth", choices=("bearer", "oauth"), default="bearer",
+                        help="OAuth uses MCP_OAUTH_ACCESS_TOKEN; bearer uses MCP_API_KEY")
     parser.add_argument("--greeks-model", choices=("standard", "binomial"),
                         help="Select the first-order Greeks model for the live chain check")
     args = parser.parse_args(argv)
     try:
-        result = asyncio.run(check(args.url, args.live, args.symbol, args.greeks_model))
+        result = asyncio.run(check(args.url, args.live, args.symbol, args.greeks_model, args.auth))
     except Exception as error:
         print(json.dumps({"check": "failed", "errors": list(dict.fromkeys(failure_messages(error)))}, indent=2), file=sys.stderr)
         return 1

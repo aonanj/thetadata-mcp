@@ -11,8 +11,19 @@ services:
     envVars:
       - key: THETADATA_API_KEY
         sync: false
-      - key: MCP_API_KEY
-        generateValue: true
+      - key: MCP_AUTH_MODE
+        value: oauth
+      - key: MCP_OAUTH_ISSUER
+        value: https://thetadata-options.us.auth0.com/
+      - key: MCP_OAUTH_JWKS_URL
+        value: https://thetadata-options.us.auth0.com/.well-known/jwks.json
+      - key: MCP_OAUTH_ALGORITHM
+        value: RS256
+      - key: MCP_OAUTH_ALLOWED_SUBJECTS
+        value: "auth0|6af0393ca991a4b5dcdc7b72"
+      # MCP_RESOURCE_URL defaults to https://<RENDER_EXTERNAL_HOSTNAME>/mcp.
+      # Set it explicitly for a custom domain; register that exact URL as the
+      # Auth0 API identifier. It is NOT the Auth0 Management API /api/v2/ URL.
       - key: THETADATA_MAX_CONCURRENT_REQUESTS
         value: "1"
       - key: PYTHONUNBUFFERED

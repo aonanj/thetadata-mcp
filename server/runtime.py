@@ -33,6 +33,7 @@ async def execute(operation: str, arguments: dict) -> dict:
 async def run_worker(operation: str, arguments: dict) -> dict:
     worker_env = dict(os.environ)
     worker_env.pop("MCP_API_KEY", None)  # Provider worker does not need the service's client token.
+    worker_env.pop("MCP_OAUTH_ACCESS_TOKEN", None)
     proc = await asyncio.create_subprocess_exec(
         sys.executable, str(Path(__file__).with_name("worker.py")),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,

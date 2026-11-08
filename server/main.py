@@ -13,7 +13,22 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 from runtime import execute
 
-mcp = FastMCP("ThetaData Options", instructions=(
+
+class OptionsMCP(FastMCP):
+    oauth_enabled = False
+
+    async def list_tools(self):
+        tools = await super().list_tools()
+        if self.oauth_enabled:
+            for tool in tools:
+                schemes = [{"type": "oauth2", "scopes": ["options:read"]}]
+                tool.meta = {**(tool.meta or {}), "securitySchemes": schemes}
+                if tool.model_extra is not None:
+                    tool.model_extra["securitySchemes"] = schemes
+        return tools
+
+
+mcp = OptionsMCP("ThetaData Options", instructions=(
     "Read-only options market data. Report source timestamps, missing fields and stale/crossed quote flags. "
     "Do not describe after-hours snapshots as current executable quotes. OI is daily, not intraday flow. "
     "IV/Greeks use native ThetaData units; quote/spread prices are dollars per share. "

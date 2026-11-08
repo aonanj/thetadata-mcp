@@ -5,3 +5,6 @@ python-dotenv>=1.2.4,<2
 uvicorn==0.54.0
 starlette>=0.48,<2
 tzdata>=2025.2
+# Direct dependency for OAuth access-token verification (also used by MCP).
+PyJWT[crypto]==2.15.1
+httpx>=0.28.1,<1

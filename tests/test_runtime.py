@@ -28,12 +28,14 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_environment_excludes_client_token(self):
         proc = Mock(returncode=0)
         proc.communicate = AsyncMock(return_value=(b'{"ok": true}', None))
-        with patch.dict(os.environ, {"MCP_API_KEY": "fake-service-token", "THETADATA_API_KEY": "fake-provider-key"}), \
+        with patch.dict(os.environ, {"MCP_API_KEY": "fake-service-token", "THETADATA_API_KEY": "fake-provider-key",
+                                     "MCP_OAUTH_ACCESS_TOKEN": "fake-oauth-token"}), \
              patch("runtime.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc) as spawn:
             result = await runtime.run_worker("chain", {})
         self.assertTrue(result["ok"])
         env = spawn.call_args.kwargs["env"]
         self.assertNotIn("MCP_API_KEY", env)
+        self.assertNotIn("MCP_OAUTH_ACCESS_TOKEN", env)
         self.assertEqual(env["THETADATA_API_KEY"], "fake-provider-key")
 
     async def test_cancellation_terminates_worker(self):

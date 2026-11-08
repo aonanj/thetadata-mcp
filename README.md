@@ -5,15 +5,22 @@ operation. Deploy it on Render or another Python/container host. The Python clie
 connects directly to ThetaData; Theta Terminal is not required. It does not place trades.
 
 The hosted service exposes authenticated `/mcp` and public `/health` endpoints.
-It needs two different secrets: `THETADATA_API_KEY` for provider access and
-`MCP_API_KEY` for clients connecting to your service. Your Mac's environment
+`THETADATA_API_KEY` stays on Render for provider access. HTTP authentication has
+two explicit modes: `bearer` (the existing default, using `MCP_API_KEY`) and
+`oauth` (using access tokens from your identity provider). Your Mac's environment
 variables do not automatically carry over to Render.
+
+**For ChatGPT's custom MCP setup, use OAuth and follow [Auth0 setup](docs/auth0-setup.md).**
+The web setup flow has no documented static bearer-token input. An API-key
+declaration in a plugin ZIP does not resolve that limitation. OAuth mode requires
+an allowed account, the `options:read` scope, and a valid token for this specific
+MCP service; it never falls back to the static service token.
 
 ## Tools
 
 | Tool | Purpose |
 | --- | --- |
-| `get_status` | Check dependency versions and API-key presence without revealing the key or authenticating. |
+| `get_status` | Check dependency versions and API-key presence without a provider request; HTTP authentication is still required. |
 | `list_expirations` | Discover available expirations for one underlying, with optional date bounds. |
 | `get_option_chain` | Join quotes, IV, first-order Greeks and daily open interest by symbol, expiration, exact strike and right. |
 | `get_option_contract` | Refresh one exact contract using its underlying, expiration, dollar strike and call/put right. |
@@ -26,9 +33,11 @@ endpoint has its own status, so missing entitlement does not discard quotes or O
 
 ## Deploy on Render
 
-Deployment checklist: push this directory to Git, create a Render Blueprint,
-set `THETADATA_API_KEY`, copy the generated `MCP_API_KEY`, verify `/health`, and
-run `scripts/check_remote.py` against your HTTPS `/mcp` endpoint. The detailed
+For ChatGPT, start with the [OAuth migration and connection instructions](docs/auth0-setup.md).
+The Blueprint uses OAuth with the `thetadata-options.us.auth0.com` tenant.
+Push this directory to Git, create or update the Render Blueprint, set
+`THETADATA_API_KEY`, apply the configured account allowlist, verify discovery, and connect
+through ChatGPT with CIMD or DCR. The detailed
 steps below cover each action. You do not need Theta Terminal or your Mac to
 remain running after deployment.
 
@@ -49,12 +58,14 @@ The steps below assume the package contents are at the repository root.
 
 1. In Render, select **New → Blueprint** and connect the repository.
 2. Select the repository branch and its `render.yaml` file.
-3. Enter your existing ThetaData key when prompted for `THETADATA_API_KEY`.
+3. Enter your existing ThetaData key for `THETADATA_API_KEY`. The Blueprint
+   supplies the approved Auth0 account in `MCP_OAUTH_ALLOWED_SUBJECTS`.
 4. Review the service and deploy. The Blueprint starts with the **Free** plan
    for testing; choose a paid instance for a service you expect to remain available.
-5. In the deployed service's **Environment** settings, reveal/copy the generated
-   `MCP_API_KEY` into your password manager and your MCP client's secret setting.
-   This is a separate service token, not your ThetaData key.
+5. Follow [Auth0 setup](docs/auth0-setup.md) to configure the MCP API audience and
+   `options:read` permission, then connect through CIMD or DCR. The Blueprint
+   does not generate a static client token; existing bearer clients must migrate
+   when the service switches to OAuth.
 
 The Blueprint defines a Python web service in Virginia, installs dependencies,
 starts Uvicorn, and checks `/health`. `.python-version` selects Python 3.14 and
@@ -78,8 +89,10 @@ Select **New → Web Service**, connect the repository, and use:
 | Health Check Path | `/health` |
 | Instance type | Free for testing, or a paid instance to avoid idle spin-down |
 
-Set `THETADATA_API_KEY` and `MCP_API_KEY` in the service's **Environment** settings
-before deploying. For manual setup, generate the separate service token locally:
+For OAuth, set the same environment values as the Blueprint and the
+[Auth0 setup guide](docs/auth0-setup.md). For a legacy static-bearer deployment,
+set `MCP_AUTH_MODE=bearer`, `THETADATA_API_KEY` and `MCP_API_KEY` before deploying.
+Generate the separate service token locally:
 
 ```bash
 python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
@@ -105,7 +118,11 @@ An unauthenticated request to `/mcp` must return `401 Unauthorized`:
 curl -i -X POST https://YOUR-SERVICE.onrender.com/mcp
 ```
 
-Install the requirements locally if needed, then set your local `MCP_API_KEY`
+For the OAuth deployment, verify protected-resource discovery and ChatGPT sign-in
+as described in [Auth0 setup](docs/auth0-setup.md). The CLI can consume an existing
+OAuth access token from `MCP_OAUTH_ACCESS_TOKEN` with `--auth oauth`.
+
+For bearer mode, install the requirements locally if needed, then set your local `MCP_API_KEY`
 to the same generated service token, using your normal secret-management method.
 Run the supplied client check:
 
@@ -137,10 +154,11 @@ Opening `/mcp` in a browser is not an MCP connection test.
 | Header | `Authorization: Bearer <your MCP_API_KEY>` |
 | Suggested tool timeout | At least 60 seconds |
 
-Use a client that supports supplying a bearer token. This server does not
-implement an OAuth authorization server; an OAuth-only client needs an OAuth
-gateway/integration before it can connect. HTTPS termination is supplied by
-Render or your hosting reverse proxy.
+This table applies to `MCP_AUTH_MODE=bearer` and clients that can supply a static
+token. For ChatGPT, set `MCP_AUTH_MODE=oauth` and configure the external identity
+provider as described in [Auth0 setup](docs/auth0-setup.md). The server implements
+the OAuth resource-server side; Auth0 handles sign-in, consent, authorization
+codes, PKCE and token issuance. HTTPS termination is supplied by Render.
 
 For Codex, an example MCP entry in its configuration is:
 
@@ -161,22 +179,29 @@ deployed endpoint**, generate a separate remote plugin package pointing to it:
 ```bash
 python scripts/package_remote.py \
   --url https://YOUR-SERVICE.onrender.com/mcp \
+  --auth bearer \
   --output ../thetadata-options-remote.zip
 ```
 
-That ZIP contains a remote connection manifest and API-key authentication
-metadata, with no server code or embedded secrets. Import/create a private plugin
-from it using Plugin Creator or your host's supported package flow, then provide
-the service's `MCP_API_KEY` through its credential prompt. Generating this package
-does not register or install it automatically. The earlier account registration
-failure is independent of hosting this server.
+This explicit `--auth bearer` export is only for clients with a static-token
+credential input. It cannot complete ChatGPT's web setup. The generator now
+defaults to OAuth with CIMD; use `--client-mode dcr` for dynamic registration.
+See [Auth0 setup](docs/auth0-setup.md). ZIPs contain connection metadata only, with no server code
+or secrets. Generating a package does not deploy, register or install anything.
 
 ## Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `THETADATA_API_KEY` | Yes | ThetaData credential; set it on the server. |
-| `MCP_API_KEY` | HTTP mode | Separate random token, at least 32 characters without whitespace; clients send it as a bearer token. |
+| `MCP_AUTH_MODE` | No | `bearer` (Python default) or `oauth` (Render Blueprint); neither mode allows anonymous MCP requests. |
+| `MCP_API_KEY` | Bearer mode | Separate random token, at least 32 characters without whitespace. Ignored in OAuth mode. |
+| `MCP_OAUTH_ISSUER` | OAuth mode | Exact HTTPS issuer including its trailing slash, when present. |
+| `MCP_OAUTH_JWKS_URL` | OAuth mode | Trusted issuer's HTTPS public signing-key endpoint; never taken from a token header. |
+| `MCP_RESOURCE_URL` | OAuth mode outside Render / custom domain | Canonical public HTTPS `/mcp` URL and required audience. Defaults to `https://<RENDER_EXTERNAL_HOSTNAME>/mcp` on Render. |
+| `MCP_OAUTH_ALLOWED_SUBJECTS` | OAuth mode | Comma-separated allowed `sub` IDs from the issuer; empty lists and `*` are rejected. |
+| `MCP_OAUTH_ALGORITHM` | No | Pinned JWT signing algorithm: `RS256` (default) or `ES256`. |
+| `MCP_OAUTH_ACCESS_TOKEN` | OAuth checker only | Short-lived access token used by `check_remote.py --auth oauth`; never a server setting. |
 | `PORT` | No | HTTP listener port; uses the host's value or defaults to `10000`. |
 | `MCP_ALLOWED_HOSTS` | Other hosts / custom domains | Comma-separated trusted hostnames, optionally with ports; no scheme, paths or wildcards. Example: `options.example.com`. |
 | `RENDER_EXTERNAL_HOSTNAME` | Automatic on Render | Adds the service's default Render hostname to the allowlist. |
@@ -185,8 +210,8 @@ failure is independent of hosting this server.
 
 Local loopback hosts are allowed for testing. For a Render custom domain, add
 that domain to `MCP_ALLOWED_HOSTS` and redeploy. On other hosts, add their assigned
-hostname explicitly. A missing/weak service token or missing provider key causes
-HTTP startup to fail instead of exposing the tools without authentication.
+hostname explicitly. Missing required auth settings or the provider key cause
+HTTP startup to fail. In OAuth mode the resource hostname must also be allowed.
 
 ## Docker and other hosting providers
 
@@ -203,7 +228,8 @@ docker run --rm --env-file .env -p 10000:10000 thetadata-options
 Then test `http://127.0.0.1:10000/health` and use `check_remote.py` with the local
 `http://127.0.0.1:10000/mcp` URL. The checker permits plain HTTP only on loopback.
 
-On another container host, deploy this Dockerfile, set both secrets and
+On another container host, deploy this Dockerfile, set `THETADATA_API_KEY`, the
+selected mode's authentication settings, and
 `MCP_ALLOWED_HOSTS` to its actual public hostname, expose the port in `PORT`,
 enable HTTPS, and configure `/health` as the health check. A native Python host
 can instead use the same build/start commands as Render. Its reverse proxy must
@@ -217,7 +243,10 @@ initially; concurrency limits are per process, not shared across replicas.
   after 15 minutes without inbound traffic; a cold start can take about a minute.
   Allow the service to wake before connecting, or use a paid instance. The
   Blueprint's free plan is a testing default.
-- **`401 Unauthorized`:** The client must send the exact server-side `MCP_API_KEY`
+- **OAuth `401` / `403` / `503`:** See [Auth0 setup](docs/auth0-setup.md).
+  Tokens need the correct signature, issuer, audience, lifetime, scope and allowed
+  subject. A signing-key outage fails closed; retry after 30 seconds.
+- **Bearer-mode `401 Unauthorized`:** The client must send the exact server-side `MCP_API_KEY`
   as a bearer token. Sending `THETADATA_API_KEY` instead is incorrect. Rotate the
   service token by changing it on the server, redeploying and updating clients.
 - **`421 Misdirected Request` or invalid Origin:** Add the real hostname to
@@ -279,7 +308,7 @@ instead of returning raw messages that might contain credentials or account deta
 For hosts without plugin-package installation, configure a local MCP server with
 command `bash` and an argument containing the absolute path to `scripts/run.sh`.
 Use that host's supported environment-variable forwarding mechanism for
-`THETADATA_API_KEY`. Local stdio does not require `MCP_API_KEY`; hosted HTTP does.
+`THETADATA_API_KEY`. Local stdio does not require HTTP authentication settings.
 
 ## Example requests
 
@@ -373,6 +402,9 @@ Validation includes:
 - Provider-worker capacity limits, cancellation cleanup and separation of client
   tokens from the provider subprocess environment.
 - Remote plugin export validation.
+- OAuth discovery, JWT signatures/claims, private account and scope enforcement,
+  signing-key rotation/outages, OAuth tool metadata, and an official MCP client
+  check using locally signed test tokens. These do not prove a live Auth0 login.
 
 The hosted refactor includes automated tests plus official MCP-client checks for
 both stdio and HTTP. The HTTP smoke test uses an in-process ASGI transport rather

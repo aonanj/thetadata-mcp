@@ -106,6 +106,13 @@ class RemoteCheckTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("Set MCP_API_KEY", json.loads(stderr.getvalue())["errors"][0])
 
+    def test_oauth_check_requires_oauth_token_without_legacy_fallback(self):
+        stderr = io.StringIO()
+        with patch.dict(os.environ, {"MCP_API_KEY": "legacy-token", "MCP_OAUTH_ACCESS_TOKEN": ""}), redirect_stderr(stderr):
+            code = check_remote.main(["--url", "https://example.com/mcp", "--auth", "oauth"])
+        self.assertEqual(code, 1)
+        self.assertIn("Set MCP_OAUTH_ACCESS_TOKEN", json.loads(stderr.getvalue())["errors"][0])
+
     def test_unknown_provider_codes_and_transport_errors_do_not_leak_details(self):
         self.assertNotIn("secret", check_remote.provider_failure({"code": "secret", "message": "secret"}))
         request = httpx.Request("POST", "https://example.com/mcp")
