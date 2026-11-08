@@ -34,7 +34,7 @@ Do not use a Management API token to call this server.
 
 In this new tenant, create or confirm a custom API named **ThetaData Options**
 whose identifier is the actual public MCP URL, for example
-`https://YOUR-SERVICE.onrender.com/mcp`, with **RS256** signing. The identifier must
+`https://thetadata-options.onrender.com/mcp`, with **RS256** signing. The identifier must
 exactly equal `MCP_RESOURCE_URL`, including the `/mcp` path and no trailing slash.
 Add the permission **`options:read`**. If RBAC is enabled, assign that permission
 to the account that will connect. The server checks the token's `scope` claim.
@@ -89,7 +89,7 @@ the account supplied for this tenant:
 MCP_AUTH_MODE=oauth
 MCP_OAUTH_ISSUER=https://thetadata-options.us.auth0.com/
 MCP_OAUTH_JWKS_URL=https://thetadata-options.us.auth0.com/.well-known/jwks.json
-MCP_RESOURCE_URL=https://YOUR-SERVICE.onrender.com/mcp
+MCP_RESOURCE_URL=https://thetadata-options.onrender.com/mcp
 MCP_OAUTH_ALLOWED_SUBJECTS=auth0|6af0393ca991a4b5dcdc7b72
 MCP_OAUTH_ALGORITHM=RS256
 ```
@@ -114,9 +114,9 @@ The server does not read `AUTH0_AUDIENCE`, `AUTH0_DOMAIN`, or `AUTH0_ISSUER`.
 ## Verify discovery and connect
 
 ```bash
-curl --fail https://YOUR-SERVICE.onrender.com/health
-curl --fail https://YOUR-SERVICE.onrender.com/.well-known/oauth-protected-resource/mcp
-curl -i -X POST https://YOUR-SERVICE.onrender.com/mcp
+curl --fail https://thetadata-options.onrender.com/health
+curl --fail https://thetadata-options.onrender.com/.well-known/oauth-protected-resource/mcp
+curl -i -X POST https://thetadata-options.onrender.com/mcp
 ```
 
 Health should return `{"status":"ok"}`. Resource metadata should identify the
@@ -138,7 +138,7 @@ For an optional packaged connection, generate this **after** endpoint verificati
 
 ```bash
 python scripts/package_remote.py \
-  --url https://YOUR-SERVICE.onrender.com/mcp \
+  --url https://thetadata-options.onrender.com/mcp \
   --client-mode cimd \
   --output ../thetadata-options-remote.zip
 ```
@@ -155,8 +155,8 @@ and make it available as `MCP_OAUTH_ACCESS_TOKEN` using your normal secure local
 environment mechanism, then run:
 
 ```bash
-python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp --auth oauth
-python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp --auth oauth --live --symbol QQQ
+python scripts/check_remote.py --url https://thetadata-options.onrender.com/mcp --auth oauth
+python scripts/check_remote.py --url https://thetadata-options.onrender.com/mcp --auth oauth --live --symbol QQQ
 ```
 
 The checker consumes a token; it does not perform browser login or refresh. It
