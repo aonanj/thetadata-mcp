@@ -178,7 +178,7 @@ deployed endpoint**, generate a separate remote plugin package pointing to it:
 
 ```bash
 python scripts/package_remote.py \
-  --url https://YOUR-SERVICE.onrender.com/mcp \
+  --url https://thetadata-options.onrender.com/mcp \
   --auth bearer \
   --output ../thetadata-options-remote.zip
 ```
