@@ -32,6 +32,91 @@ Quote, Greek, underlying and open-interest
 timestamps are kept separately. Missing values stay null. Each requested
 endpoint has its own status, so missing entitlement does not discard quotes or OI.
 
+## Calculated horizon gamma
+
+Both options tools add a separate `horizon_gamma` object to every returned row.
+It estimates Black–Scholes–Merton gamma at a future time from that row's
+**Greeks snapshot timestamp**, holding spot, implied volatility and carry fixed.
+The default advances 25% of the remaining lifetime: four hours remaining means
+a one-hour horizon and three hours remaining in the gamma formula. This is a
+European-model scenario, not a prediction of future spot, IV or executable prices.
+Provider fields, including `greeks.gamma`, are preserved.
+
+For `T` seconds between the Greeks timestamp and the modeled expiration cutoff,
+`tau = (1 - fraction) * T / (365 * 86400)` and
+`d1 = (ln(S/K) + (r - q + sigma^2/2) * tau) / (sigma * sqrt(tau))`.
+The estimate is `exp(-q*tau) * normal_pdf(d1) / (S*sigma*sqrt(tau))`, expressed
+as delta change per **$1 of underlying**, with no contract-multiplier scaling.
+IV is used as an annualized decimal (`0.25` means 25%), without magnitude-based
+conversion. Rates are annual continuously compounded decimals.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `HORIZON_GAMMA_FRACTION` | `0.25` | Finite fraction in `[0, 1)`; zero evaluates gamma at the snapshot. |
+| `HORIZON_GAMMA_RISK_FREE_RATE` | `0.0` | Finite annual rate; negative rates are supported. |
+| `HORIZON_GAMMA_DIVIDEND_YIELD` | `0.0` | Finite, nonnegative annual continuous dividend yield. |
+| `HORIZON_GAMMA_SYMBOL_PROFILES` | QQQ/SPY `late_close` | JSON object merged with these defaults; keys are normalized symbols. |
+
+These are independent modeling assumptions, not the undisclosed rates used for
+the provider's IV. They do not model discrete dividends or early exercise.
+Set environment values on Render and restart/redeploy to apply them; local `.env`
+values do not automatically reach a hosted process. Invalid values fail startup
+in both HTTP and stdio mode. The API arguments stay unchanged.
+
+Timing uses the pinned offline NYSE calendar from `pandas_market_calendars`,
+including early closes and holidays. `regular_close` uses its session close;
+`late_close` adds 15 minutes. QQQ/SPY normally use 4:15 p.m. ET and 1:15 p.m. on
+early-close days. This is a model trading-session cutoff, **not an exercise
+deadline**. Elapsed UTC seconds include nights/weekends and account for DST;
+integer DTE is never used in the formula. Calendar corrections require a package
+update; there is no calendar network request at runtime.
+
+For another verified PM-settled equity/ETF timing convention, configure e.g.
+`HORIZON_GAMMA_SYMBOL_PROFILES='{"AAPL":"regular_close","IWM":"late_close"}'`.
+Choose the profile appropriate to the specific option class. Unconfigured
+symbols, AM-settled products and dates with no matching session are not guessed.
+An explicit profile override replaces that symbol's default.
+
+Each `horizon_gamma` contains:
+
+- `value`, `status` (`ok`, `warning`, `unavailable`), `reason`, and `warnings`.
+- `as_of`, `horizon_at`, and `model_expiry_at` as timezone-aware ISO timestamps.
+- `seconds_to_expiry`, `horizon_seconds`, and `remaining_seconds` without a time floor.
+
+Response-level `horizon_gamma_model` reports the model/version, fraction, rates,
+IV convention, ACT/365F basis, units, profiles, calendar version and limitations.
+Spot, strike, IV and their original timestamps remain available in the row.
+With `include_greeks=false`, the new result is unavailable with
+`greeks_not_requested`; no additional provider fetch is performed.
+
+Stale inputs still produce a historical snapshot-anchored scenario with warnings.
+Warnings cover stale/future/missing source times, pairwise source gaps exceeding
+`stale_after_seconds`, horizons already past, invalid/crossed/zero-bid quotes,
+spreads above 5% of midpoint, and maturities outside 0–5 calendar DTE **as of the
+Greeks snapshot**. The existing `calendar_dte` remains retrieval-date based.
+Warnings neither filter rows nor certify liquidity. Daily OI is not a gamma input.
+
+ThetaData documents a one-hour minimum time in its latest IV methodology.
+During the final hour, `provider_iv_minimum_tte_may_apply` highlights that inherited
+limitation; the calculation reuses IV and uses exact remaining seconds. Binomial
+IV is accepted with `binomial_iv_in_european_model`. Unknown snapshot time,
+invalid/nonpositive spot, strike or IV, unsupported timing, expiration reached
+at the snapshot, or numerical failure yield null with a reason. A valid
+deep-tail gamma can underflow to zero; unavailable results are never replaced by
+zero. Calculation statuses do not change provider `partial` or `source_status`.
+
+References: [Black–Scholes gamma](https://www.mathworks.com/help/finance/blsgamma.html),
+[ThetaData IV/time convention](https://thetadata.net/docs/operations_python/option_snapshot_greeks_first_order.html),
+[Nasdaq options hours](https://www.nasdaqtrader.com/Trader.aspx?id=optionshours),
+[ThetaData early closes](https://thetadata.net/docs/operations/calendar_open_today.html),
+[offline calendar](https://pandas-market-calendars.readthedocs.io/en/latest/usage.html).
+
+After deploying, verify narrow QQQ/SPY chains and exact contracts through the
+installed plugin. Confirm `horizon_gamma_model.version`, effective settings and
+calendar version; reproduce each value from its returned inputs and remaining
+seconds. Current-session acceptance additionally needs fresh, aligned snapshots;
+after-hours checks verify calculation/provenance but not executable quotes.
+
 ## Deploy on Render
 
 For ChatGPT, start with the [OAuth migration and connection instructions](docs/auth0-setup.md).

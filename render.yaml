@@ -24,5 +24,14 @@ services:
       # Auth0 API identifier. It is NOT the Auth0 Management API /api/v2/ URL.
       - key: THETADATA_MAX_CONCURRENT_REQUESTS
         value: "1"
+      # Fixed-input scenario assumptions, independent of ThetaData's IV model.
+      - key: HORIZON_GAMMA_FRACTION
+        value: "0.25"
+      - key: HORIZON_GAMMA_RISK_FREE_RATE
+        value: "0.0"
+      - key: HORIZON_GAMMA_DIVIDEND_YIELD
+        value: "0.0"
+      - key: HORIZON_GAMMA_SYMBOL_PROFILES
+        value: '{"QQQ":"late_close","SPY":"late_close"}'
       - key: PYTHONUNBUFFERED
         value: "1"

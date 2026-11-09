@@ -12,6 +12,10 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 from runtime import execute
+from horizon_gamma import GammaSettings
+
+# Fail startup in both stdio and HTTP modes before accepting any tool calls.
+GammaSettings.from_env()
 
 
 class OptionsMCP(FastMCP):
@@ -32,6 +36,8 @@ mcp = OptionsMCP("ThetaData Options", instructions=(
     "Read-only options market data. Report source timestamps, missing fields and stale/crossed quote flags. "
     "Do not describe after-hours snapshots as current executable quotes. OI is daily, not intraday flow. "
     "IV/Greeks use native ThetaData units; quote/spread prices are dollars per share. "
+    "horizon_gamma is a calculated Black-Scholes-Merton European-model scenario at a future time from the Greeks snapshot, "
+    "with spot and IV held constant, in delta per dollar of underlying. Report its assumptions, timestamps and warnings. "
     "Never request the API key in chat. A subscription error is not a zero value."
 ), stateless_http=True, json_response=True, max_request_body_size=65536)
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
@@ -52,7 +58,7 @@ def date_checked(value: str) -> str:
 def get_status() -> dict:
     """Check API-key presence and local dependencies without authenticating or revealing secrets."""
     packages = {}
-    for name in ("thetadata", "mcp", "python-dotenv"):
+    for name in ("thetadata", "mcp", "python-dotenv", "pandas_market_calendars"):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -94,6 +100,9 @@ async def get_option_chain(
     spot plus ATM. With include_greeks, greeks_model selects ThetaData's standard
     or binomial first-order Greeks and IV. Both routes are available on Standard.
     Partial results retain errors. Quotes may be up to 7 days old outside session.
+    horizon_gamma is a separate calculated European-model scenario using constant
+    spot/IV, configured carry and a future fraction of time from the Greeks timestamp.
+    Inspect horizon_gamma_model and row warnings. include_greeks=false skips it.
     """
     args = locals().copy()
     args["symbol"] = symbol_checked(symbol)
@@ -118,6 +127,8 @@ async def get_option_contract(
     Returns bid/ask/size/spread plus independently timestamped IV, first-order
     Greeks and daily OI. Select standard or binomial first-order Greeks with greeks_model.
     Use this for a fresh check after discovering contracts with get_option_chain.
+    Includes the same calculated horizon_gamma scenario and model metadata as the
+    chain tool; its future time is anchored to the Greeks snapshot with spot/IV fixed.
     """
     args = locals().copy()
     args.update(symbol=symbol_checked(symbol), expiration=date_checked(expiration), strike=str(strike), max_rows=1)

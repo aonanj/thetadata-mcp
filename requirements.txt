@@ -8,3 +8,5 @@ tzdata>=2025.2
 # Direct dependency for OAuth access-token verification (also used by MCP).
 PyJWT[crypto]==2.15.1
 httpx>=0.28.1,<1
+# Offline holidays and early closes for horizon-gamma expiration profiles.
+pandas_market_calendars==5.6.0

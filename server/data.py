@@ -8,6 +8,8 @@ import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from horizon_gamma import GammaSettings, SessionCloses, calculate_horizon_gamma
+
 ET = ZoneInfo("America/New_York")
 KEYS = ("symbol", "expiration", "strike", "right")
 GREEKS = ("delta", "gamma", "theta", "vega", "rho", "epsilon", "lambda",
@@ -77,8 +79,11 @@ def age(value: Any, now: datetime) -> float | None:
 
 
 def join_snapshots(sources: dict[str, list[dict]], *, max_rows: int = 200,
-                   stale_after_seconds: int = 120, now: datetime | None = None) -> dict:
+                   stale_after_seconds: int = 120, now: datetime | None = None,
+                   gamma_settings: GammaSettings | None = None, greeks_model: str = "standard") -> dict:
     now = now or datetime.now(timezone.utc)
+    gamma_settings = gamma_settings or GammaSettings.from_env()
+    closes = SessionCloses()
     maps, invalid = {}, {}
     for name, records in sources.items():
         maps[name], invalid[name] = indexed(records)
@@ -139,8 +144,14 @@ def join_snapshots(sources: dict[str, list[dict]], *, max_rows: int = 200,
             "open_interest_timestamp": iso(oi.get("timestamp")),
             "flags": flags,
         })
+    for row in output:
+        row["horizon_gamma"] = calculate_horizon_gamma(
+            row, settings=gamma_settings, closes=closes, now=now,
+            include_greeks="greeks" in sources, greeks_model=greeks_model,
+            stale_after_seconds=stale_after_seconds)
     return {"rows": output, "returned_rows": len(output), "total_matching_rows": len(ordered),
-            "truncated": len(ordered) > max_rows, "invalid_provider_rows": invalid}
+            "truncated": len(ordered) > max_rows, "invalid_provider_rows": invalid,
+            "horizon_gamma_model": gamma_settings.metadata()}
 
 
 def provider_error(error: Exception) -> dict:
@@ -174,6 +185,7 @@ def provider_error(error: Exception) -> dict:
 class OptionsService:
     def __init__(self, client):
         self.client = client
+        self.gamma_settings = GammaSettings.from_env()
 
     def _records(self, method: str, **params) -> list[dict]:
         # Retry only transient failures, using the same endpoint and filters.
@@ -236,7 +248,8 @@ class OptionsService:
                 sources[source] = []
             if source == "greeks":
                 status[source].update(model=greeks_model, endpoint=method)
-        result = join_snapshots(sources, max_rows=max_rows, stale_after_seconds=stale_after_seconds)
+        result = join_snapshots(sources, max_rows=max_rows, stale_after_seconds=stale_after_seconds,
+                                gamma_settings=self.gamma_settings, greeks_model=greeks_model)
         result.update({"source_status": status, "effective_provider_filters": params,
                        "partial": any(v["status"] != "ok" for v in status.values()),
                        "retrieved_at": datetime.now(timezone.utc).isoformat(),
@@ -246,6 +259,7 @@ class OptionsService:
                            "Open interest is a daily report reflecting the previous trading day's positions; it is not intraday flow.",
                            "Sources are fetched separately and are not an atomic snapshot. Greeks retain their own bid/ask and timestamp.",
                            "Prices and spreads are dollars per share. IV and Greeks retain ThetaData's native units; no percent or contract scaling is applied.",
+                           "horizon_gamma is a calculated European-model scenario anchored to the Greeks snapshot, holding spot and IV constant. Inspect its assumptions, times and warnings; it is not a forecast or a current executable quote.",
                            "Rows are sorted by expiration, strike and right; truncation is not a ranking of candidates.",
                        ]})
         return result

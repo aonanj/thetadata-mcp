@@ -1,0 +1,17 @@
+{
+  "provenance": {
+    "source": "Installed hosted ThetaData Options get_option_chain tool",
+    "retrieved_at": "2026-11-09T02:24:34.141671+00:00",
+    "request": {"symbol": "QQQ", "max_dte": 5, "strike_range": 1, "max_rows": 4, "include_open_interest": false},
+    "note": "Selected fields from the observed first row. Stale, non-atomic Friday snapshot; provider carry not returned. Unit-check fixture only."
+  },
+  "row": {
+    "symbol": "QQQ", "expiration": "2026-11-09", "strike": 668.0, "right": "call",
+    "implied_vol": 0.0454, "underlying_price": 668.5,
+    "greeks_timestamp": "2026-11-06T16:14:59.940000-05:00",
+    "underlying_timestamp": "2026-11-06T20:00:00.168000-05:00",
+    "quote_timestamp": "2026-11-06T16:14:59.940000-05:00",
+    "greeks_bid": 1.46, "greeks_ask": 1.52,
+    "spread_pct_of_mid": 4.0268, "flags": ["stale_quote", "stale_greeks"]
+  }
+}
