@@ -26,7 +26,7 @@ RESOURCE = "https://options.example.com/mcp"
 SUBJECT = "auth0|test-owner"
 ENV = {"MCP_AUTH_MODE": "oauth", "MCP_OAUTH_ISSUER": ISSUER,
        "MCP_OAUTH_JWKS_URL": ISSUER + ".well-known/jwks.json", "MCP_RESOURCE_URL": RESOURCE,
-       "MCP_OAUTH_ALLOWED_SUBJECTS": SUBJECT, "MCP_OAUTH_ALGORITHM": "RS256",
+       "MCP_OAUTH_ALGORITHM": "RS256",
        "MCP_ALLOWED_HOSTS": "options.example.com", "RENDER_EXTERNAL_HOSTNAME": "",
        "THETADATA_API_KEY": "fake-provider-key", "MCP_API_KEY": "legacy-token-" + "x" * 32}
 REAL_ASYNC_CLIENT = httpx.AsyncClient
@@ -127,13 +127,25 @@ class OAuthTests(unittest.TestCase):
             execute.assert_not_awaited()
         self.assertEqual(self.fetch.call_count, 1)
 
-    def test_private_account_and_scope_are_required(self):
-        for claims, error in (({"sub": "auth0|someone-else"}, "access_denied"),
-                              ({"scope": "other:read"}, "insufficient_scope"),
-                              ({"scope": ["options:read"]}, "insufficient_scope")):
+    def test_valid_subjects_do_not_require_a_local_allowlist(self):
+        # Old deployment variables must not silently retain the removed policy.
+        assert self.app.oauth is not None
+        for legacy_value in ("", SUBJECT):
+            with patch.dict(os.environ, {"MCP_OAUTH_ALLOWED_SUBJECTS": legacy_value}):
+                self.app.oauth.settings = OAuthSettings.from_env()
+            for subject in (SUBJECT, "auth0|someone-else", "google-oauth2|another-user"):
+                with self.subTest(legacy_value=legacy_value, subject=subject):
+                    response = self.rpc(self.token(sub=subject), "tools/call",
+                                        {"name": "get_status", "arguments": {}})
+                    self.assertEqual(response.status_code, 200)
+                    self.assertFalse(response.json()["result"].get("isError", False))
+
+    def test_scope_is_required_for_every_subject(self):
+        for claims in ({"scope": "other:read"}, {"scope": ["options:read"]},
+                       {"sub": "auth0|someone-else", "scope": ""}):
             response = self.rpc(self.token(**claims))
             self.assertEqual(response.status_code, 403)
-            self.assertEqual(response.json()["error"], error)
+            self.assertEqual(response.json()["error"], "insufficient_scope")
             self.assertIn("resource_metadata=", response.headers["www-authenticate"])
 
     def test_duplicate_headers_rejected_and_bearer_mode_cannot_bypass_oauth(self):
@@ -190,7 +202,6 @@ class OAuthTests(unittest.TestCase):
     def test_oauth_configuration_fails_closed(self):
         for override in ({"MCP_AUTH_MODE": "none"}, {"MCP_OAUTH_ISSUER": ""},
                          {"MCP_OAUTH_JWKS_URL": "http://issuer.example/keys"},
-                         {"MCP_OAUTH_ALLOWED_SUBJECTS": ""}, {"MCP_OAUTH_ALLOWED_SUBJECTS": "*"},
                          {"MCP_RESOURCE_URL": RESOURCE + "/"}, {"MCP_RESOURCE_URL": RESOURCE + "?secret=x"},
                          {"MCP_RESOURCE_URL": "https://other.example/mcp"}, {"MCP_OAUTH_ALGORITHM": "HS256"},
                          {"THETADATA_API_KEY": ""}):

@@ -13,8 +13,9 @@ variables do not automatically carry over to Render.
 **For ChatGPT's custom MCP setup, use OAuth and follow [Auth0 setup](docs/auth0-setup.md).**
 The web setup flow has no documented static bearer-token input. An API-key
 declaration in a plugin ZIP does not resolve that limitation. OAuth mode requires
-an allowed account, the `options:read` scope, and a valid token for this specific
-MCP service; it never falls back to the static service token.
+the `options:read` scope and a valid token for this specific MCP service from the
+configured issuer; it never falls back to the static service token. Access is
+controlled through Auth0 permissions, with no server-side account allowlist.
 
 ## Tools
 
@@ -36,7 +37,7 @@ endpoint has its own status, so missing entitlement does not discard quotes or O
 For ChatGPT, start with the [OAuth migration and connection instructions](docs/auth0-setup.md).
 The Blueprint uses OAuth with the `thetadata-options.us.auth0.com` tenant.
 Push this directory to Git, create or update the Render Blueprint, set
-`THETADATA_API_KEY`, apply the configured account allowlist, verify discovery, and connect
+`THETADATA_API_KEY`, configure Auth0 permissions, verify discovery, and connect
 through ChatGPT with CIMD or DCR. The detailed
 steps below cover each action. You do not need Theta Terminal or your Mac to
 remain running after deployment.
@@ -58,8 +59,7 @@ The steps below assume the package contents are at the repository root.
 
 1. In Render, select **New → Blueprint** and connect the repository.
 2. Select the repository branch and its `render.yaml` file.
-3. Enter your existing ThetaData key for `THETADATA_API_KEY`. The Blueprint
-   supplies the approved Auth0 account in `MCP_OAUTH_ALLOWED_SUBJECTS`.
+3. Enter your existing ThetaData key for `THETADATA_API_KEY`.
 4. Review the service and deploy. The Blueprint starts with the **Free** plan
    for testing; choose a paid instance for a service you expect to remain available.
 5. Follow [Auth0 setup](docs/auth0-setup.md) to configure the MCP API audience and
@@ -199,7 +199,6 @@ or secrets. Generating a package does not deploy, register or install anything.
 | `MCP_OAUTH_ISSUER` | OAuth mode | Exact HTTPS issuer including its trailing slash, when present. |
 | `MCP_OAUTH_JWKS_URL` | OAuth mode | Trusted issuer's HTTPS public signing-key endpoint; never taken from a token header. |
 | `MCP_RESOURCE_URL` | OAuth mode outside Render / custom domain | Canonical public HTTPS `/mcp` URL and required audience. Defaults to `https://<RENDER_EXTERNAL_HOSTNAME>/mcp` on Render. |
-| `MCP_OAUTH_ALLOWED_SUBJECTS` | OAuth mode | Comma-separated allowed `sub` IDs from the issuer; empty lists and `*` are rejected. |
 | `MCP_OAUTH_ALGORITHM` | No | Pinned JWT signing algorithm: `RS256` (default) or `ES256`. |
 | `MCP_OAUTH_ACCESS_TOKEN` | OAuth checker only | Short-lived access token used by `check_remote.py --auth oauth`; never a server setting. |
 | `PORT` | No | HTTP listener port; uses the host's value or defaults to `10000`. |
@@ -244,8 +243,8 @@ initially; concurrency limits are per process, not shared across replicas.
   Allow the service to wake before connecting, or use a paid instance. The
   Blueprint's free plan is a testing default.
 - **OAuth `401` / `403` / `503`:** See [Auth0 setup](docs/auth0-setup.md).
-  Tokens need the correct signature, issuer, audience, lifetime, scope and allowed
-  subject. A signing-key outage fails closed; retry after 30 seconds.
+  Tokens need the correct signature, issuer, audience, lifetime and scope, and a
+  valid subject claim. A signing-key outage fails closed; retry after 30 seconds.
 - **Bearer-mode `401 Unauthorized`:** The client must send the exact server-side `MCP_API_KEY`
   as a bearer token. Sending `THETADATA_API_KEY` instead is incorrect. Rotate the
   service token by changing it on the server, redeploying and updating clients.
@@ -402,7 +401,7 @@ Validation includes:
 - Provider-worker capacity limits, cancellation cleanup and separation of client
   tokens from the provider subprocess environment.
 - Remote plugin export validation.
-- OAuth discovery, JWT signatures/claims, private account and scope enforcement,
+- OAuth discovery, JWT signatures/claims, scope enforcement across subjects,
   signing-key rotation/outages, OAuth tool metadata, and an official MCP client
   check using locally signed test tokens. These do not prove a live Auth0 login.
 

@@ -34,7 +34,6 @@ class OAuthSettings:
     issuer: str
     jwks_url: str
     resource: str
-    allowed_subjects: frozenset[str]
     algorithm: str
 
     @classmethod
@@ -48,13 +47,10 @@ class OAuthSettings:
         resource = https_url(resource_url, "MCP_RESOURCE_URL")
         if urlsplit(resource).path != "/mcp":
             raise ValueError("MCP_RESOURCE_URL must end in /mcp, without a trailing slash")
-        subjects = frozenset(s.strip() for s in os.getenv("MCP_OAUTH_ALLOWED_SUBJECTS", "").split(",") if s.strip())
-        if not subjects or "*" in subjects:
-            raise ValueError("Set MCP_OAUTH_ALLOWED_SUBJECTS to explicit comma-separated identity-provider subject IDs")
         algorithm = os.getenv("MCP_OAUTH_ALGORITHM", "RS256")
         if algorithm not in {"RS256", "ES256"}:
             raise ValueError("MCP_OAUTH_ALGORITHM must be RS256 or ES256")
-        return cls(issuer, jwks_url, resource, subjects, algorithm)
+        return cls(issuer, jwks_url, resource, algorithm)
 
     @property
     def metadata_url(self) -> str:
@@ -147,8 +143,6 @@ class OAuthVerifier:
                     raise jwt.InvalidTokenError()
         except (jwt.PyJWTError, ValueError, TypeError, OverflowError):
             raise OAuthFailure(401, "invalid_token") from None
-        if claims["sub"] not in self.settings.allowed_subjects:
-            raise OAuthFailure(403, "access_denied")
         scope = claims.get("scope")
         if not isinstance(scope, str) or OAUTH_SCOPE not in scope.split():
             raise OAuthFailure(403, "insufficient_scope")

@@ -66,12 +66,11 @@ audience with the MCP URL to work around a missing resource parameter.
    third-party permissions for dynamic clients. Enable a login connection that
    these clients can use; Auth0's strict third-party flow requires a domain-level
    connection. Merely advertising CIMD/DCR does not configure these permissions.
-4. In the **new tenant's** Auth0 **User Management → Users**, copy the connecting account's exact
-   `user_id` (the access token's `sub`, often `auth0|…` or `google-oauth2|…`). Set
-   that value in Render's `MCP_OAUTH_ALLOWED_SUBJECTS`. Comma-separate additional
-   approved subjects if needed. Do not substitute an application client ID or
-   assume the old tenant's user ID is valid here. Being able to sign in to this tenant alone does
-   not grant access to the ThetaData subscription.
+
+The server accepts any subject whose token passes signature, issuer, audience,
+lifetime and `options:read` checks. Configure who may receive that permission
+through Auth0. There is no additional server-side account allowlist. A `sub`
+claim is still required as part of access-token validation.
 
 For persistent connections, optionally enable refresh tokens/offline access in
 the Auth0 application/API and request `offline_access` in the client's OAuth
@@ -82,15 +81,13 @@ ChatGPT authorization-code flow.
 ## Configure and deploy on Render
 
 Deploy the updated repository and set the following in the service's Environment
-settings. Substitute the **actual** service URL; the allowed user ID below is
-the account supplied for this tenant:
+settings. Substitute the **actual** service URL if it differs:
 
 ```dotenv
 MCP_AUTH_MODE=oauth
 MCP_OAUTH_ISSUER=https://thetadata-options.us.auth0.com/
 MCP_OAUTH_JWKS_URL=https://thetadata-options.us.auth0.com/.well-known/jwks.json
 MCP_RESOURCE_URL=https://thetadata-options.onrender.com/mcp
-MCP_OAUTH_ALLOWED_SUBJECTS=auth0|6af0393ca991a4b5dcdc7b72
 MCP_OAUTH_ALGORITHM=RS256
 ```
 
@@ -98,10 +95,10 @@ Keep the existing `THETADATA_API_KEY`. OAuth mode does not use `MCP_API_KEY` eve
 if it remains in the environment. For a custom domain, also set its hostname in
 `MCP_ALLOWED_HOSTS`. The default Render hostname is allowed automatically.
 
-`render.yaml` now selects **OAuth**, the new tenant's issuer/JWKS, and the single
-allowed subject above. A new Blueprint prompts for the provider key. On an
-existing service, sync the Blueprint or set the same allowed subject in Environment
-before deploying; startup fails closed if it is missing. If `MCP_RESOURCE_URL` is unset, Render's trusted
+`render.yaml` selects **OAuth** and the new tenant's issuer/JWKS. A new Blueprint
+prompts for the provider key. The removed `MCP_OAUTH_ALLOWED_SUBJECTS` setting is
+ignored by the updated server and can be deleted from an existing Render service.
+If `MCP_RESOURCE_URL` is unset, Render's trusted
 `RENDER_EXTERNAL_HOSTNAME` supplies `https://<hostname>/mcp`. Set the explicit
 resource URL above for a custom domain or to preserve an existing canonical URL.
 The request's Host header is never used to construct OAuth discovery URLs.
@@ -126,7 +123,7 @@ and the scope. Both root and path-specific protected-resource metadata URLs are
 public; tools, initialization and discovery of tools require authentication.
 
 In ChatGPT, add a custom MCP server with the HTTPS `/mcp` URL, select **OAuth**
-and **CIMD** (or DCR), and complete Auth0 sign-in as the allowed account. Clear
+and **CIMD** (or DCR), and complete Auth0 sign-in with access to `options:read`. Clear
 any old pre-registered client credentials: supplied static credentials can take
 precedence over dynamic registration. Reconnect to the new issuer and refresh
 tool metadata. If the saved connection locks the old registration settings,
@@ -165,19 +162,19 @@ does not fall back to `MCP_API_KEY` when `--auth oauth` is selected.
 ## Failure meanings and verification limits
 
 - **Startup failure:** Required OAuth settings/provider key missing, unsafe URL,
-  unsupported algorithm, empty/wildcard account list, or untrusted resource host.
+  unsupported algorithm, or untrusted resource host.
 - **401:** Missing/invalid token, wrong signing key/issuer/audience, expired or
   not-yet-valid token. Old-tenant tokens, Management API tokens, and ID tokens
   are not MCP access tokens.
-- **403:** Account not allowlisted, `options:read` missing, or invalid request Origin.
+- **403:** `options:read` missing, or invalid request Origin.
 - **503:** Signing keys unavailable or malformed. Authentication fails closed and
   requests receive `Retry-After: 30`; details and token contents are not returned.
 
 Signing keys are cached for up to five minutes, with refreshes limited to once
 per 30 seconds per process, including unknown-key requests. Publish new keys
-before issuing tokens using them. Removing a subject and restarting the service
-revokes that subject's access immediately; otherwise JWTs are validated locally
-until expiration. This server does not query Auth0's revocation state per request.
+before issuing tokens using them. JWTs are validated locally until expiration;
+changes to Auth0 permissions do not invalidate an already-issued token here.
+This server does not query Auth0's revocation state per request.
 
 Local tests exercise real signed JWTs, discovery/challenges, scopes, subjects,
 key rotation, failure handling and the official MCP HTTP client without calling
