@@ -106,7 +106,7 @@ configuration. Never put either secret into Git, a plugin ZIP or a URL.
 Use the actual service URL shown in Render, which might differ from its requested name:
 
 ```bash
-curl --fail https://YOUR-SERVICE.onrender.com/health
+curl --fail https://thetadata-options.onrender.com/health
 ```
 
 Expected response: `{"status":"ok"}`. This is a liveness check; it does **not**
@@ -115,7 +115,7 @@ authenticate with ThetaData or confirm subscription access.
 An unauthenticated request to `/mcp` must return `401 Unauthorized`:
 
 ```bash
-curl -i -X POST https://YOUR-SERVICE.onrender.com/mcp
+curl -i -X POST https://thetadata-options.onrender.com/mcp
 ```
 
 For the OAuth deployment, verify protected-resource discovery and ChatGPT sign-in
@@ -127,9 +127,9 @@ to the same generated service token, using your normal secret-management method.
 Run the supplied client check:
 
 ```bash
-python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp
-python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp --live --symbol QQQ
-python scripts/check_remote.py --url https://YOUR-SERVICE.onrender.com/mcp --live --symbol QQQ --greeks-model binomial
+python scripts/check_remote.py --url https://thetadata-options.onrender.com/mcp
+python scripts/check_remote.py --url https://thetadata-options.onrender.com/mcp --live --symbol QQQ
+python scripts/check_remote.py --url https://thetadata-options.onrender.com/mcp --live --symbol QQQ --greeks-model binomial
 ```
 
 The first command verifies MCP initialization, tool discovery and remote status.
@@ -149,7 +149,7 @@ Opening `/mcp` in a browser is not an MCP connection test.
 | Connection field | Value |
 | --- | --- |
 | Transport | Streamable HTTP |
-| Endpoint | `https://YOUR-SERVICE.onrender.com/mcp` |
+| Endpoint | `https://thetadata-options.onrender.com/mcp` |
 | Authentication | Static bearer token / API key |
 | Header | `Authorization: Bearer <your MCP_API_KEY>` |
 | Suggested tool timeout | At least 60 seconds |
@@ -164,7 +164,7 @@ For Codex, an example MCP entry in its configuration is:
 
 ```toml
 [mcp_servers.thetadata_options]
-url = "https://YOUR-SERVICE.onrender.com/mcp"
+url = "https://thetadata-options.onrender.com/mcp"
 bearer_token_env_var = "MCP_API_KEY"
 tool_timeout_sec = 60
 ```
